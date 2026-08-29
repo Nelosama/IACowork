@@ -1,0 +1,25 @@
+appId: com.airouter.app
+productName: AI Router
+directories:
+  output: dist
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+win:
+  executableName: ai-router
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  artifactName: AI-Router-Setup-${version}.${ext}
+  shortcutName: AI Router
+  uninstallDisplayName: AI Router
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false
