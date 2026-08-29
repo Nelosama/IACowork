@@ -1,188 +1,131 @@
 // ============================================================
-// Database Layer — SQL Server connection and schema
-// Manages conversations, messages, and provider configurations.
+// Database Layer — SQLite connection and schema (better-sqlite3)
+// Manages conversations, messages, and provider configurations locally.
 // API keys are NOT stored here — they use safeStorage.
 // ============================================================
 
-import sql from 'mssql'
+import Database from 'better-sqlite3'
+import { app } from 'electron'
+import * as path from 'path'
+import * as fs from 'fs'
 
-let pool: sql.ConnectionPool | null = null
+let db: Database.Database | null = null
 
 export interface DatabaseConfig {
-  server: string
-  database: string
-  user?: string
-  password?: string
-  port?: number
-  /** Use Windows authentication instead of SQL auth */
-  trustedConnection?: boolean
-  /** Full connection string (overrides individual fields) */
-  connectionString?: string
+  dbPath?: string
 }
 
-const DEFAULT_CONFIG: DatabaseConfig = {
-  server: 'localhost',
-  database: 'AIRouter',
-  port: 1433,
-  trustedConnection: true
+function getDbPath(): string {
+  const userDataPath = app.getPath('userData')
+  if (!fs.existsSync(userDataPath)) {
+    fs.mkdirSync(userDataPath, { recursive: true })
+  }
+  return path.join(userDataPath, 'airouter.db')
 }
 
 /** Initialize the database connection and create tables if needed */
-export async function initDatabase(config?: Partial<DatabaseConfig>): Promise<sql.ConnectionPool> {
-  if (pool) return pool
+export async function initDatabase(config?: Partial<DatabaseConfig>): Promise<Database.Database> {
+  if (db) return db
 
-  const dbConfig = { ...DEFAULT_CONFIG, ...config }
+  const dbPath = config?.dbPath || getDbPath()
 
   try {
-    if (dbConfig.connectionString) {
-      pool = await sql.connect(dbConfig.connectionString)
-    } else {
-      const sqlConfig: sql.config = {
-        server: dbConfig.server,
-        database: dbConfig.database,
-        port: dbConfig.port ?? 1433,
-        options: {
-          encrypt: false,
-          trustServerCertificate: true,
-          enableArithAbort: true
-        }
-      }
+    db = new Database(dbPath)
+    db.pragma('journal_mode = WAL')
 
-      if (dbConfig.trustedConnection) {
-        sqlConfig.authentication = {
-          type: 'ntlm',
-          options: {
-            domain: '',
-            userName: '',
-            password: ''
-          }
-        }
-      } else if (dbConfig.user && dbConfig.password) {
-        sqlConfig.user = dbConfig.user
-        sqlConfig.password = dbConfig.password
-      }
-
-      pool = await sql.connect(sqlConfig)
-    }
-
-    await createTables()
-    await seedDefaultProviders()
-    console.log('[DB] Connected to SQL Server:', dbConfig.server, '/', dbConfig.database)
-    return pool
+    createTables()
+    seedDefaultProviders()
+    console.log('[DB] Connected to SQLite database at:', dbPath)
+    return db
   } catch (error) {
-    pool = null
+    db = null
     console.error('[DB] Connection failed:', error)
     throw error
   }
 }
 
 /** Create tables if they don't exist */
-async function createTables(): Promise<void> {
-  if (!pool) throw new Error('Database not connected')
+function createTables(): void {
+  if (!db) throw new Error('Database not connected')
 
-  await pool.request().query(`
-    IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='conversations' AND xtype='U')
-    CREATE TABLE conversations (
-      id NVARCHAR(36) PRIMARY KEY,
-      title NVARCHAR(255) NOT NULL DEFAULT 'New Chat',
-      created_at DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
-      updated_at DATETIME2 NOT NULL DEFAULT GETUTCDATE()
-    )
-  `)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS conversations (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT 'New Chat',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
 
-  await pool.request().query(`
-    IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='messages' AND xtype='U')
-    CREATE TABLE messages (
-      id NVARCHAR(36) PRIMARY KEY,
-      conversation_id NVARCHAR(36) NOT NULL,
-      role NVARCHAR(20) NOT NULL,
-      content NVARCHAR(MAX) NOT NULL,
-      provider_used NVARCHAR(100) NULL,
-      model_used NVARCHAR(100) NULL,
-      provider_type NVARCHAR(50) NULL,
-      tokens_used INT NULL,
-      created_at DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      provider_used TEXT NULL,
+      model_used TEXT NULL,
+      provider_type TEXT NULL,
+      tokens_used INTEGER NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
-    )
-  `)
+    );
 
-  await pool.request().query(`
-    IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='providers' AND xtype='U')
-    CREATE TABLE providers (
-      id NVARCHAR(36) PRIMARY KEY,
-      type NVARCHAR(50) NOT NULL,
-      display_name NVARCHAR(100) NOT NULL,
-      base_url NVARCHAR(500) NULL,
-      model NVARCHAR(200) NULL,
-      custom_headers NVARCHAR(MAX) NULL,
-      sort_order INT NOT NULL DEFAULT 0,
-      enabled BIT NOT NULL DEFAULT 1,
-      created_at DATETIME2 NOT NULL DEFAULT GETUTCDATE()
-    )
-  `)
+    CREATE TABLE IF NOT EXISTS providers (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      base_url TEXT NULL,
+      model TEXT NULL,
+      custom_headers TEXT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
 
-  await pool.request().query(`
-    IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name='IX_messages_conversation_id')
-    CREATE INDEX IX_messages_conversation_id ON messages(conversation_id)
-  `)
-
-  await pool.request().query(`
-    IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name='IX_providers_sort_order')
-    CREATE INDEX IX_providers_sort_order ON providers(sort_order)
+    CREATE INDEX IF NOT EXISTS IX_messages_conversation_id ON messages(conversation_id);
+    CREATE INDEX IF NOT EXISTS IX_providers_sort_order ON providers(sort_order);
   `)
 }
 
-async function seedDefaultProviders(): Promise<void> {
-  if (!pool) throw new Error('Database not connected')
-  const result = await pool.request().query('SELECT COUNT(*) AS c FROM providers')
-  const count = result.recordset[0]?.c ?? 0
-  if (count > 0) return
+function seedDefaultProviders(): void {
+  if (!db) throw new Error('Database not connected')
+  const row = db.prepare('SELECT COUNT(*) AS c FROM providers').get() as { c: number }
+  if (row.c > 0) return
 
-  const { randomUUID } = await import('crypto')
-  await pool
-    .request()
-    .input('id', sql.NVarChar(36), randomUUID())
-    .input('type', sql.NVarChar(50), 'ollama')
-    .input('displayName', sql.NVarChar(100), 'Ollama (Local)')
-    .input('baseUrl', sql.NVarChar(500), 'http://localhost:11434/v1')
-    .input('model', sql.NVarChar(200), 'llama3.2')
-    .query(
-      `INSERT INTO providers (id, type, display_name, base_url, model, sort_order, enabled)
-       VALUES (@id, @type, @displayName, @baseUrl, @model, 0, 1)`
-    )
+  const { randomUUID } = require('crypto')
+  db.prepare(
+    `INSERT INTO providers (id, type, display_name, base_url, model, sort_order, enabled)
+     VALUES (?, ?, ?, ?, ?, 0, 1)`
+  ).run(
+    randomUUID(),
+    'ollama',
+    'Ollama (Local)',
+    'http://localhost:11434/v1',
+    'llama3.2'
+  )
 }
 
 export async function createConversation(id: string, title: string = 'New Chat'): Promise<void> {
-  if (!pool) throw new Error('Database not connected')
-  await pool
-    .request()
-    .input('id', sql.NVarChar(36), id)
-    .input('title', sql.NVarChar(255), title)
-    .query('INSERT INTO conversations (id, title) VALUES (@id, @title)')
+  if (!db) throw new Error('Database not connected')
+  db.prepare('INSERT INTO conversations (id, title) VALUES (?, ?)').run(id, title)
 }
 
 export async function getConversations(): Promise<
-  Array<{ id: string; title: string; created_at: Date; updated_at: Date }>
+  Array<{ id: string; title: string; created_at: string; updated_at: string }>
 > {
-  if (!pool) throw new Error('Database not connected')
-  const result = await pool
-    .request()
-    .query('SELECT id, title, created_at, updated_at FROM conversations ORDER BY updated_at DESC')
-  return result.recordset
+  if (!db) throw new Error('Database not connected')
+  return db
+    .prepare('SELECT id, title, created_at, updated_at FROM conversations ORDER BY updated_at DESC')
+    .all() as Array<{ id: string; title: string; created_at: string; updated_at: string }>
 }
 
 export async function updateConversationTitle(id: string, title: string): Promise<void> {
-  if (!pool) throw new Error('Database not connected')
-  await pool
-    .request()
-    .input('id', sql.NVarChar(36), id)
-    .input('title', sql.NVarChar(255), title)
-    .query('UPDATE conversations SET title = @title, updated_at = GETUTCDATE() WHERE id = @id')
+  if (!db) throw new Error('Database not connected')
+  db.prepare("UPDATE conversations SET title = ?, updated_at = datetime('now') WHERE id = ?").run(title, id)
 }
 
 export async function deleteConversation(id: string): Promise<void> {
-  if (!pool) throw new Error('Database not connected')
-  await pool.request().input('id', sql.NVarChar(36), id).query('DELETE FROM conversations WHERE id = @id')
+  if (!db) throw new Error('Database not connected')
+  db.prepare('DELETE FROM conversations WHERE id = ?').run(id)
 }
 
 export async function addMessage(
@@ -195,24 +138,22 @@ export async function addMessage(
   providerType?: string,
   tokensUsed?: number
 ): Promise<void> {
-  if (!pool) throw new Error('Database not connected')
-  await pool
-    .request()
-    .input('id', sql.NVarChar(36), id)
-    .input('conversationId', sql.NVarChar(36), conversationId)
-    .input('role', sql.NVarChar(20), role)
-    .input('content', sql.NVarChar(sql.MAX), content)
-    .input('providerUsed', sql.NVarChar(100), providerUsed || null)
-    .input('modelUsed', sql.NVarChar(100), modelUsed || null)
-    .input('providerType', sql.NVarChar(50), providerType || null)
-    .input('tokensUsed', sql.Int, tokensUsed || null)
-    .query(`INSERT INTO messages (id, conversation_id, role, content, provider_used, model_used, provider_type, tokens_used)
-            VALUES (@id, @conversationId, @role, @content, @providerUsed, @modelUsed, @providerType, @tokensUsed)`)
+  if (!db) throw new Error('Database not connected')
+  db.prepare(
+    `INSERT INTO messages (id, conversation_id, role, content, provider_used, model_used, provider_type, tokens_used)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    conversationId,
+    role,
+    content,
+    providerUsed || null,
+    modelUsed || null,
+    providerType || null,
+    tokensUsed || null
+  )
 
-  await pool
-    .request()
-    .input('cid', sql.NVarChar(36), conversationId)
-    .query('UPDATE conversations SET updated_at = GETUTCDATE() WHERE id = @cid')
+  db.prepare("UPDATE conversations SET updated_at = datetime('now') WHERE id = ?").run(conversationId)
 }
 
 export async function getMessages(conversationId: string): Promise<
@@ -225,15 +166,23 @@ export async function getMessages(conversationId: string): Promise<
     model_used: string | null
     provider_type: string | null
     tokens_used: number | null
-    created_at: Date
+    created_at: string
   }>
 > {
-  if (!pool) throw new Error('Database not connected')
-  const result = await pool
-    .request()
-    .input('conversationId', sql.NVarChar(36), conversationId)
-    .query('SELECT * FROM messages WHERE conversation_id = @conversationId ORDER BY created_at ASC')
-  return result.recordset
+  if (!db) throw new Error('Database not connected')
+  return db
+    .prepare('SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC')
+    .all(conversationId) as Array<{
+    id: string
+    conversation_id: string
+    role: string
+    content: string
+    provider_used: string | null
+    model_used: string | null
+    provider_type: string | null
+    tokens_used: number | null
+    created_at: string
+  }>
 }
 
 export async function saveProvider(provider: {
@@ -246,29 +195,28 @@ export async function saveProvider(provider: {
   sortOrder: number
   enabled: boolean
 }): Promise<void> {
-  if (!pool) throw new Error('Database not connected')
-  await pool
-    .request()
-    .input('id', sql.NVarChar(36), provider.id)
-    .input('type', sql.NVarChar(50), provider.type)
-    .input('displayName', sql.NVarChar(100), provider.displayName)
-    .input('baseUrl', sql.NVarChar(500), provider.baseUrl || null)
-    .input('model', sql.NVarChar(200), provider.model || null)
-    .input(
-      'customHeaders',
-      sql.NVarChar(sql.MAX),
-      provider.customHeaders ? JSON.stringify(provider.customHeaders) : null
-    )
-    .input('sortOrder', sql.Int, provider.sortOrder)
-    .input('enabled', sql.Bit, provider.enabled ? 1 : 0)
-    .query(`MERGE providers AS target
-            USING (SELECT @id AS id) AS source ON target.id = source.id
-            WHEN MATCHED THEN
-              UPDATE SET type = @type, display_name = @displayName, base_url = @baseUrl,
-                         model = @model, custom_headers = @customHeaders, sort_order = @sortOrder, enabled = @enabled
-            WHEN NOT MATCHED THEN
-              INSERT (id, type, display_name, base_url, model, custom_headers, sort_order, enabled)
-              VALUES (@id, @type, @displayName, @baseUrl, @model, @customHeaders, @sortOrder, @enabled);`)
+  if (!db) throw new Error('Database not connected')
+  db.prepare(
+    `INSERT INTO providers (id, type, display_name, base_url, model, custom_headers, sort_order, enabled)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       type=excluded.type,
+       display_name=excluded.display_name,
+       base_url=excluded.base_url,
+       model=excluded.model,
+       custom_headers=excluded.custom_headers,
+       sort_order=excluded.sort_order,
+       enabled=excluded.enabled`
+  ).run(
+    provider.id,
+    provider.type,
+    provider.displayName,
+    provider.baseUrl || null,
+    provider.model || null,
+    provider.customHeaders ? JSON.stringify(provider.customHeaders) : null,
+    provider.sortOrder,
+    provider.enabled ? 1 : 0
+  )
 }
 
 export async function getProviders(): Promise<
@@ -283,35 +231,41 @@ export async function getProviders(): Promise<
     enabled: boolean
   }>
 > {
-  if (!pool) throw new Error('Database not connected')
-  const result = await pool.request().query('SELECT * FROM providers ORDER BY sort_order ASC')
-  return result.recordset
+  if (!db) throw new Error('Database not connected')
+  const rows = db.prepare('SELECT * FROM providers ORDER BY sort_order ASC').all() as Array<{
+    id: string
+    type: string
+    display_name: string
+    base_url: string | null
+    model: string | null
+    custom_headers: string | null
+    sort_order: number
+    enabled: boolean
+  }>
+  return rows.map((r) => ({ ...r, enabled: Boolean(r.enabled) }))
 }
 
 export async function deleteProvider(id: string): Promise<void> {
-  if (!pool) throw new Error('Database not connected')
-  await pool.request().input('id', sql.NVarChar(36), id).query('DELETE FROM providers WHERE id = @id')
+  if (!db) throw new Error('Database not connected')
+  db.prepare('DELETE FROM providers WHERE id = ?').run(id)
 }
 
 export async function updateProviderOrder(orderedIds: string[]): Promise<void> {
-  if (!pool) throw new Error('Database not connected')
+  if (!db) throw new Error('Database not connected')
+  const stmt = db.prepare('UPDATE providers SET sort_order = ? WHERE id = ?')
   for (let i = 0; i < orderedIds.length; i++) {
-    await pool
-      .request()
-      .input('id', sql.NVarChar(36), orderedIds[i])
-      .input('sortOrder', sql.Int, i)
-      .query('UPDATE providers SET sort_order = @sortOrder WHERE id = @id')
+    stmt.run(i, orderedIds[i])
   }
 }
 
 export async function closeDatabase(): Promise<void> {
-  if (pool) {
-    await pool.close()
-    pool = null
-    console.log('[DB] Connection closed')
+  if (db) {
+    db.close()
+    db = null
+    console.log('[DB] SQLite connection closed')
   }
 }
 
 export function isDatabaseConnected(): boolean {
-  return pool !== null
+  return db !== null
 }

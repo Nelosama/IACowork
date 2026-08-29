@@ -114,7 +114,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle('chat:sendMessage', async (event, conversationId: string, content: string) => {
     try {
       if (!db.isDatabaseConnected()) {
-        throw new Error('SQL Server no está conectado. Configúralo en Ajustes.')
+        throw new Error('Base de datos SQLite no está conectada.')
       }
 
       const userMsgId = randomUUID()
@@ -308,37 +308,14 @@ function registerIpcHandlers(): void {
       if (key === 'dbConnected') continue
       secureStore.setPreference(key, value)
     }
-
-    if (settings.dbConfig) {
-      try {
-        await db.closeDatabase()
-        await db.initDatabase(settings.dbConfig as db.DatabaseConfig)
-        await refreshProviders()
-      } catch (error) {
-        console.error('[Settings] Failed to reconnect database:', error)
-        throw new Error(toErrorMessage(error))
-      }
-    }
-  })
-
-  ipcMain.handle('settings:testDb', async (_, dbConfig: db.DatabaseConfig) => {
-    try {
-      await db.closeDatabase()
-      await db.initDatabase(dbConfig)
-      await refreshProviders()
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: toErrorMessage(error) }
-    }
   })
 }
 
 app.whenReady().then(async () => {
   try {
-    const dbConfig = secureStore.getPreference<db.DatabaseConfig>('dbConfig')
-    await db.initDatabase(dbConfig || undefined)
+    await db.initDatabase()
   } catch (error) {
-    console.error('[App] Database initialization failed — app will start without DB:', error)
+    console.error('[App] Database initialization failed:', error)
   }
 
   try {

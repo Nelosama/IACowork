@@ -26,7 +26,6 @@ export interface ElectronAPI {
 
   getSettings(): Promise<unknown>
   updateSettings(settings: unknown): Promise<void>
-  testDatabase(dbConfig: unknown): Promise<{ success: boolean; error?: string }>
 
   minimizeWindow(): void
   maximizeWindow(): void
@@ -74,7 +73,6 @@ const api: ElectronAPI = {
 
   getSettings: () => ipcRenderer.invoke('settings:get'),
   updateSettings: (settings) => ipcRenderer.invoke('settings:update', settings),
-  testDatabase: (dbConfig) => ipcRenderer.invoke('settings:testDb', dbConfig),
 
   minimizeWindow: () => ipcRenderer.send('window:minimize'),
   maximizeWindow: () => ipcRenderer.send('window:maximize'),
