@@ -38,15 +38,6 @@ interface ProviderDefaults {
   displayName: string
 }
 
-interface DbConfig {
-  server: string
-  database: string
-  port: number
-  trustedConnection: boolean
-  user?: string
-  password?: string
-}
-
 const api = () => window.electronAPI
 
 export default function App() {
@@ -247,7 +238,7 @@ export default function App() {
         <main className="main">
           {dbConnected === false && (
             <div className="banner warn">
-              SQL Server no está conectado. Abre Ajustes y comprueba servidor, base de datos y autenticación.
+              Base de datos local no disponible.
             </div>
           )}
           {view === 'chat' ? (
@@ -312,13 +303,6 @@ export default function App() {
 function SettingsView({ onDbStatus }: { onDbStatus: (ok: boolean) => void }) {
   const [providers, setProviders] = useState<ProviderRow[]>([])
   const [types, setTypes] = useState<Record<string, ProviderDefaults>>({})
-  const [dbConfig, setDbConfig] = useState<DbConfig>({
-    server: 'localhost',
-    database: 'AIRouter',
-    port: 1433,
-    trustedConnection: true
-  })
-  const [dbMsg, setDbMsg] = useState<string | null>(null)
   const [addType, setAddType] = useState('gemini')
   const [status, setStatus] = useState<Record<string, string>>({})
 
@@ -326,11 +310,10 @@ function SettingsView({ onDbStatus }: { onDbStatus: (ok: boolean) => void }) {
     const [plist, t, settings] = await Promise.all([
       api().getProviders() as Promise<ProviderRow[]>,
       api().getProviderTypes() as Promise<Record<string, ProviderDefaults>>,
-      api().getSettings() as Promise<{ dbConfig?: DbConfig; dbConnected?: boolean }>
+      api().getSettings() as Promise<{ dbConnected?: boolean }>
     ])
     setProviders(plist)
     setTypes(t)
-    if (settings.dbConfig) setDbConfig((prev) => ({ ...prev, ...settings.dbConfig }))
     if (typeof settings.dbConnected === 'boolean') onDbStatus(settings.dbConnected)
   }, [onDbStatus])
 
@@ -355,72 +338,11 @@ function SettingsView({ onDbStatus }: { onDbStatus: (ok: boolean) => void }) {
     <section className="settings">
       <h1>Ajustes</h1>
 
-      <h2>SQL Server</h2>
-      <div className="card grid">
-        <label>
-          Servidor
-          <input
-            value={dbConfig.server}
-            onChange={(e) => setDbConfig({ ...dbConfig, server: e.target.value })}
-          />
-        </label>
-        <label>
-          Base de datos
-          <input
-            value={dbConfig.database}
-            onChange={(e) => setDbConfig({ ...dbConfig, database: e.target.value })}
-          />
-        </label>
-        <label>
-          Puerto
-          <input
-            type="number"
-            value={dbConfig.port}
-            onChange={(e) => setDbConfig({ ...dbConfig, port: Number(e.target.value) })}
-          />
-        </label>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={dbConfig.trustedConnection}
-            onChange={(e) => setDbConfig({ ...dbConfig, trustedConnection: e.target.checked })}
-          />
-          Autenticación de Windows
-        </label>
-        {!dbConfig.trustedConnection && (
-          <>
-            <label>
-              Usuario
-              <input
-                value={dbConfig.user || ''}
-                onChange={(e) => setDbConfig({ ...dbConfig, user: e.target.value })}
-              />
-            </label>
-            <label>
-              Contraseña
-              <input
-                type="password"
-                value={dbConfig.password || ''}
-                onChange={(e) => setDbConfig({ ...dbConfig, password: e.target.value })}
-              />
-            </label>
-          </>
-        )}
-        <div className="row">
-          <button
-            type="button"
-            className="primary"
-            onClick={async () => {
-              const result = await api().testDatabase(dbConfig)
-              setDbMsg(result.success ? 'Conectado a SQL Server.' : result.error || 'Error')
-              onDbStatus(!!result.success)
-              if (result.success) await api().updateSettings({ dbConfig })
-            }}
-          >
-            Probar y guardar
-          </button>
-          {dbMsg && <span className="hint">{dbMsg}</span>}
-        </div>
+      <h2>Persistencia Local</h2>
+      <div className="card">
+        <p className="hint">
+          Los chats, mensajes y configuraciones de proveedores se guardan automáticamente en una base de datos local SQLite (<code>airouter.db</code>).
+        </p>
       </div>
 
       <h2>Proveedores (orden de failover)</h2>

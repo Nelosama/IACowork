@@ -1,17 +1,25 @@
 # AI Router
 
-Cliente de escritorio para Windows: chat con varios proveedores de IA y failover automático cuando el actual se queda sin cuota o responde rate-limit. La persistencia es **SQL Server**.
+Cliente de escritorio para Windows: chat con varios proveedores de IA y failover automático transparente cuando el proveedor actual se queda sin cuota o responde rate-limit. La persistencia local se maneja con **SQLite** (`better-sqlite3`).
+
+## Proveedores soportados
+
+1. **Ollama** (local, `http://localhost:11434/v1`) — respaldo sin límite.
+2. **Google AI Studio (Gemini)** — API oficial con key.
+3. **DeepSeek** — API oficial con key.
+4. **OpenRouter** — API compatible con formato OpenAI.
+5. **Conector genérico OpenAI-compatible** — configurable con URL base + key + modelo.
 
 ## Desarrollo
 
-Requisitos: Node.js 20+, SQL Server accesible (por defecto `localhost` / base `AIRouter`, autenticación de Windows).
+Requisitos: Node.js 20+
 
 ```bash
 npm install
 npm run dev
 ```
 
-En **Ajustes** conecta SQL Server, agrega proveedores (Gemini, DeepSeek, OpenRouter, Ollama, u OpenAI-compatible) y ordena la prioridad con Subir/Bajar.
+En **Ajustes** puedes agregar proveedores, colocar tus API keys y reordenar la prioridad de failover con Subir/Bajar.
 
 Ollama local: `http://localhost:11434` (sin API key). Las keys se cifran en el equipo con DPAPI.
 

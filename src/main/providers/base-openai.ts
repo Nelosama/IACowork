@@ -127,7 +127,15 @@ export abstract class BaseOpenAIProvider implements AIProvider {
         this.handleErrorResponse(response.status, body)
       }
 
-      const data = await response.json()
+      const data = (await response.json()) as {
+        choices?: Array<{ message?: { content?: string } }>
+        model?: string
+        usage?: {
+          prompt_tokens?: number
+          completion_tokens?: number
+          total_tokens?: number
+        }
+      }
       const choice = data.choices?.[0]
 
       return {

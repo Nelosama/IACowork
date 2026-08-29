@@ -15,8 +15,8 @@ export class GenericOpenAIProvider extends BaseOpenAIProvider {
         headers: this.getHeaders()
       })
       if (!response.ok) return []
-      const data = await response.json()
-      return (data.data || []).map((m: { id: string }) => m.id)
+      const data = (await response.json()) as { data?: Array<{ id: string }> }
+      return (data.data || []).map((m) => m.id)
     } catch {
       return []
     }
