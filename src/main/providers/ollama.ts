@@ -16,8 +16,8 @@ export class OllamaProvider extends BaseOpenAIProvider {
       const nativeUrl = this.baseUrl.replace('/v1', '')
       const response = await fetch(`${nativeUrl}/api/tags`)
       if (!response.ok) return []
-      const data = await response.json()
-      return (data.models || []).map((m: { name: string }) => m.name)
+      const data = (await response.json()) as { models?: Array<{ name: string }> }
+      return (data.models || []).map((m) => m.name)
     } catch {
       return []
     }
