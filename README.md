@@ -12,9 +12,6 @@ Cliente de escritorio para Windows: chat con varios proveedores de IA y failover
 
 ## Desarrollo
 
-Requisitos:
-- Node.js 20+
-- Build tools de Windows (`npm install --global --production windows-build-tools` o C++ Build Tools de Visual Studio) y Python con `setuptools` para la compilación nativa de `better-sqlite3`.
 
 ```bash
 npm install
