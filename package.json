@@ -10,8 +10,8 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "postinstall": "electron-builder install-app-deps",
-    "dist": "electron-vite build && electron-builder --win --config",
-    "dist:dir": "electron-vite build && electron-builder --win --dir --config",
+    "dist": "electron-vite build && electron-builder --win",
+    "dist:dir": "electron-vite build && electron-builder --win --dir",
     "test:failover": "npx tsx src/main/router/failover-engine.test.ts"
   },
   "dependencies": {

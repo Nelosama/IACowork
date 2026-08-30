@@ -12,7 +12,6 @@ Cliente de escritorio para Windows: chat con varios proveedores de IA y failover
 
 ## Desarrollo
 
-Requisitos: Node.js 20+
 
 ```bash
 npm install
